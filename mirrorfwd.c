@@ -29,6 +29,7 @@ static uint32_t my_ip = RTE_IPV4(143, 248, 41, 17);
 static uint32_t target_ip_1 = RTE_IPV4(143, 248, 47, 98);
 static uint32_t target_ip_2 = RTE_IPV4(143, 248, 47, 99);
 
+/* Needed if using hard-coded ARP function */
 static struct rte_ether_addr target_ip_1_mac = {
 	.addr_bytes = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 };
@@ -420,9 +421,18 @@ lcore_main(void)
 
 						/* Modify src MAC and dst MAC */
 						struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+
+						// simple way: just swap the MACs
+						struct rte_ether_addr tmp;
+						rte_ether_addr_copy(&eth_hdr->src_addr, &tmp);
 						rte_ether_addr_copy(&eth_hdr->dst_addr, &eth_hdr->src_addr);
-						struct rte_ether_addr new_dst_mac = get_mac_from_ip(new_dst_ip);
-						rte_ether_addr_copy(&new_dst_mac, &eth_hdr->dst_addr);
+						rte_ether_addr_copy(&tmp, &eth_hdr->dst_addr);
+
+						// // advanced: get corresponding MAC for given IP on demand
+						// rte_ether_addr_copy(&eth_hdr->dst_addr, &eth_hdr->src_addr);
+						// struct rte_ether_addr new_dst_mac = get_mac_from_ip(new_dst_ip);
+						// rte_ether_addr_copy(&new_dst_mac, &eth_hdr->dst_addr);
+						
 						printf("lcore_main(): for new pkt to send, srcMAC="
 							RTE_ETHER_ADDR_PRT_FMT
 							", dstMAC="
