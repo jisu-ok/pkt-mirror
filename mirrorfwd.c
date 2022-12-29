@@ -29,6 +29,13 @@ static uint32_t my_ip = RTE_IPV4(143, 248, 41, 17);
 static uint32_t target_ip_1 = RTE_IPV4(143, 248, 47, 98);
 static uint32_t target_ip_2 = RTE_IPV4(143, 248, 47, 99);
 
+static struct rte_ether_addr target_ip_1_mac = {
+	.addr_bytes = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
+};
+static struct rte_ether_addr target_ip_2_mac = {
+	.addr_bytes = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
+};
+
 /* mirrorfwd.c: DPDK forwarding app acting like a mirror */
 
 // #define PKT_IS_IP_HDR(m) (RTE_ETH_IS_IPV4_HDR(m->packet_type) || RTE_ETH_IS_IPV6_HDR(m->packet_type))
@@ -89,6 +96,19 @@ print_stats(void)
 	printf("\n==================================================");
 
 	fflush(stdout);
+}
+
+/* Hard-coded ARP function */
+struct rte_ether_addr get_mac_from_ip(uint32_t ip) {
+	if (ip == target_ip_1)
+		return target_ip_1_mac;
+
+	else if (ip == target_ip_2)
+		return target_ip_2_mac;
+
+	else
+		rte_exit(EXIT_FAILURE, "get_mac_from_ip() only works for the two target IP addresses!\n");
+
 }
 
 /* Check if a given packet is a RoCEv2 packet */
@@ -375,14 +395,14 @@ lcore_main(void)
 
 				for (i = 0; i < nb_rx; i++) {
 					m = bufs[i];
-					eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+					// eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
 					// /* if packet is RoCEv2 */
 					// if (is_rocev2_pkt(m)) {
 					// 	printf("Received RoCEv2 pkt!\n");
 					// }
 
-
+					/* if packet type recognition by HW is not working, get packet type in SW */
 					if (m->packet_type == 0) {
 						uint32_t packet_type;
 						struct rte_net_hdr_lens hdr_lens;
@@ -398,10 +418,20 @@ lcore_main(void)
 					if (new_dst_ip) {
 						printf("lcore_main(): Received target pkt!\n");
 
+						/* Modify src MAC and dst MAC */
 						struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-						struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+						rte_ether_addr_copy(&eth_hdr->dst_addr, &eth_hdr->src_addr);
+						struct rte_ether_addr new_dst_mac = get_mac_from_ip(new_dst_ip);
+						rte_ether_addr_copy(&new_dst_mac, &eth_hdr->dst_addr);
+						printf("lcore_main(): for new pkt to send, srcMAC="
+							RTE_ETHER_ADDR_PRT_FMT
+							", dstMAC="
+							RTE_ETHER_ADDR_PRT_FMT "\n",
+							RTE_ETHER_ADDR_BYTES(&eth_hdr->src_addr),
+							RTE_ETHER_ADDR_BYTES(&eth_hdr->dst_addr));
 
 						/* Modify src IP and dst IP */
+						struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
 						printf("lcore_main(): for new pkt to send, srcIP=%u.%u.%u.%u, dstIP=%u.%u.%u.%u\n",
 								(my_ip>>24)&0xff, (my_ip>>16)&0xff, (my_ip>>8)&0xff, my_ip&0xff,
 								(new_dst_ip>>24)&0xff, (new_dst_ip>>16)&0xff, (new_dst_ip>>8)&0xff, new_dst_ip&0xff);
