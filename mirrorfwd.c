@@ -396,12 +396,15 @@ lcore_main(void)
 					/* if packet is target pkt */
 					uint32_t new_dst_ip = is_target_pkt(m);
 					if (new_dst_ip) {
-						printf("Received target pkt!\n");
+						printf("lcore_main(): Received target pkt!\n");
 
 						struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 						struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
 
 						/* Modify src IP and dst IP */
+						printf("lcore_main(): for new pkt to send, srcIP=%u.%u.%u.%u, dstIP=%u.%u.%u.%u\n",
+								(my_ip>>24)&0xff, (my_ip>>16)&0xff, (my_ip>>8)&0xff, my_ip&0xff,
+								(new_dst_ip>>24)&0xff, (new_dst_ip>>16)&0xff, (new_dst_ip>>8)&0xff, new_dst_ip&0xff);
 						ip_hdr->src_addr = rte_cpu_to_be_32(my_ip);
 						ip_hdr->dst_addr = rte_cpu_to_be_32(new_dst_ip);
 
