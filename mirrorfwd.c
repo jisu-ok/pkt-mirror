@@ -12,6 +12,7 @@
 #include <rte_mbuf.h>
 
 #include <rte_malloc.h>
+#include <rte_net.h>
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
@@ -380,6 +381,17 @@ lcore_main(void)
 					// if (is_rocev2_pkt(m)) {
 					// 	printf("Received RoCEv2 pkt!\n");
 					// }
+
+
+					if (m->packet_type == 0) {
+						uint32_t packet_type;
+						struct rte_net_hdr_lens hdr_lens;
+
+						packet_type = rte_net_get_ptype(m, &hdr_lens, RTE_PTYPE_ALL_MASK);
+						m->packet_type = packet_type;
+						m->l2_len = hdr_lens.l2_len;
+						m->l3_len = hdr_lens.l3_len;
+					}
 
 					/* if packet is target pkt */
 					uint32_t new_dst_ip = is_target_pkt(m);
