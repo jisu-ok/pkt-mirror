@@ -30,6 +30,7 @@
 /* mirrorfwd.c: DPDK forwarding app acting like a mirror */
 
 
+/* Configure the mirror interface's IP and target IPs to mirror-forward */
 static uint32_t my_ip = RTE_IPV4(143, 248, 41, 17);
 static uint32_t target_ip_1 = RTE_IPV4(143, 248, 47, 98);
 static uint32_t target_ip_2 = RTE_IPV4(143, 248, 47, 99);
