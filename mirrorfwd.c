@@ -14,7 +14,7 @@
 #include <rte_malloc.h>
 #include <rte_net.h>
 
-#define DEBUG_MODE 0
+#define DEBUG_MODE
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
