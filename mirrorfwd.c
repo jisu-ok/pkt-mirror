@@ -149,7 +149,8 @@ uint32_t is_target_pkt(struct rte_mbuf *m) {
 
 	if (RTE_ETH_IS_IPV4_HDR(m->packet_type)) {
 		struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-		struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)((char *)eth_hdr + m->l2_len);
+		// struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)((char *)eth_hdr + m->l2_len);
+		struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
 		uint32_t src_ip = rte_be_to_cpu_32(ip_hdr->src_addr);
 		uint32_t dst_ip = rte_be_to_cpu_32(ip_hdr->dst_addr);
 
@@ -289,9 +290,19 @@ lcore_main(void)
 {
 	uint16_t port;
 	int i;
+	struct rte_mbuf *bufs[BURST_SIZE];
 	struct rte_mbuf *m;
+	uint16_t nb_rx, nb_tx;
+	uint32_t packet_type;
+	uint32_t new_dst_ip;
+	struct rte_net_hdr_lens hdr_lens;
 	struct rte_ether_hdr *eth_hdr;
+	struct rte_ether_addr tmp;
+	struct rte_ipv4_hdr *ip_hdr;
+	struct rte_udp_hdr *udp_hdr;
+	struct rte_tcp_hdr *tcp_hdr;
 	uint16_t eth_type;
+	uint16_t buf;
 	unsigned nb_ports, nb_pports;
 	struct rte_eth_dev_tx_buffer *buffer;
 	const uint64_t drain_tsc = (rte_get_tsc_hz() + US_PER_S - 1) / US_PER_S * BURST_TX_DRAIN_US;
@@ -384,9 +395,8 @@ lcore_main(void)
 			if (port < nb_pports) {
 				
 				/* Get burst of RX packets */
-				struct rte_mbuf *bufs[BURST_SIZE];
-				const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
-						bufs, BURST_SIZE);
+				// struct rte_mbuf *bufs[BURST_SIZE];
+				nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
 
 				if (unlikely(nb_rx == 0))
 					continue;
@@ -406,8 +416,8 @@ lcore_main(void)
 
 					/* if packet type recognition by HW is not working, get packet type in SW */
 					if (m->packet_type == 0) {
-						uint32_t packet_type;
-						struct rte_net_hdr_lens hdr_lens;
+						// uint32_t packet_type;
+						// struct rte_net_hdr_lens hdr_lens;
 
 						packet_type = rte_net_get_ptype(m, &hdr_lens, RTE_PTYPE_ALL_MASK);
 						m->packet_type = packet_type;
@@ -416,17 +426,17 @@ lcore_main(void)
 					}
 
 					/* if packet is target pkt 8< */
-					uint32_t new_dst_ip = is_target_pkt(m);
+					new_dst_ip = is_target_pkt(m);
 					if (new_dst_ip) {
 #ifdef DEBUG_MODE
 						printf("lcore_main(): Received target pkt!\n");
 #endif
 
 						/* Modify src MAC and dst MAC 8< */
-						struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+						eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
 						// simple way: just swap the MACs
-						struct rte_ether_addr tmp;
+						// struct rte_ether_addr tmp;
 						rte_ether_addr_copy(&eth_hdr->src_addr, &tmp);
 						rte_ether_addr_copy(&eth_hdr->dst_addr, &eth_hdr->src_addr);
 						rte_ether_addr_copy(&tmp, &eth_hdr->dst_addr);
@@ -447,7 +457,7 @@ lcore_main(void)
 						/* >8 End of modifying MACs */
 
 						/* Modify src IP and dst IP 8< */
-						struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+						ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
 						ip_hdr->src_addr = rte_cpu_to_be_32(my_ip);
 						ip_hdr->dst_addr = rte_cpu_to_be_32(new_dst_ip);
 
@@ -466,7 +476,7 @@ lcore_main(void)
 
 						/* if packet is UDP */
 						if ((IS_UDP_HDR(m->packet_type))) {
-							struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)((char *)ip_hdr + m->l3_len);
+							udp_hdr = (struct rte_udp_hdr *)((char *)ip_hdr + m->l3_len);
 							udp_hdr->dgram_cksum = 0;
 
 							/* calculate UDP cksum in SW if needed */
@@ -476,7 +486,7 @@ lcore_main(void)
 
 						/* if packet is TCP */
 						if ((IS_TCP_HDR(m->packet_type))) {
-							struct rte_tcp_hdr *tcp_hdr = (struct rte_tcp_hdr *)((char *)ip_hdr + m->l3_len);
+							tcp_hdr = (struct rte_tcp_hdr *)((char *)ip_hdr + m->l3_len);
 							tcp_hdr->cksum = 0;
 
 							/* calculate TCP cksum in SW if needed */
@@ -514,9 +524,8 @@ lcore_main(void)
 			/* for virtio ports 8< */
 			else {
 				/* Get burst of RX packets */
-				struct rte_mbuf *bufs[BURST_SIZE];
-				const uint16_t nb_rx = rte_eth_rx_burst(port, 0,
-						bufs, BURST_SIZE);
+				// struct rte_mbuf *bufs[BURST_SIZE];
+				nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
 
 				if (unlikely(nb_rx == 0))
 					continue;
@@ -524,14 +533,13 @@ lcore_main(void)
 				port_statistics[port].rx += nb_rx;
 				
 				/* Forward read packets to corresponding physical port */
-				const uint16_t nb_tx = rte_eth_tx_burst(port - nb_pports, 0,
-						bufs, nb_rx);
+				nb_tx = rte_eth_tx_burst(port - nb_pports, 0, bufs, nb_rx);
 					
 				port_statistics[port].tx += nb_tx;
 
 				/* Free any unsent packets. */
 				if (unlikely(nb_tx < nb_rx)) {
-					uint16_t buf;
+					// uint16_t buf;
 					for (buf = nb_tx; buf < nb_rx; buf++)
 						rte_pktmbuf_free(bufs[buf]);
 				}
