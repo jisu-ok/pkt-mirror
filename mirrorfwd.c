@@ -14,6 +14,8 @@
 #include <rte_malloc.h>
 #include <rte_net.h>
 
+#define DEBUG_MODE 0
+
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
 
@@ -22,14 +24,17 @@
 #define BURST_SIZE 32
 #define BURST_TX_DRAIN_US 100 /* TX drain every ~100us */
 
-#define TIMER_PERIOD 10
-static uint64_t timer_period_tsc;
+#define TIMER_PERIOD 10 /* Time period for port statistics printing, in seconds. To diable statistics printing, set this value to 0*/
+
+
+/* mirrorfwd.c: DPDK forwarding app acting like a mirror */
+
 
 static uint32_t my_ip = RTE_IPV4(143, 248, 41, 17);
 static uint32_t target_ip_1 = RTE_IPV4(143, 248, 47, 98);
 static uint32_t target_ip_2 = RTE_IPV4(143, 248, 47, 99);
 
-/* Needed if using hard-coded ARP function */
+/* Needed if using hard-coded IP-to-MAC resolution */
 static struct rte_ether_addr target_ip_1_mac = {
 	.addr_bytes = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00}
 };
@@ -37,7 +42,7 @@ static struct rte_ether_addr target_ip_2_mac = {
 	.addr_bytes = {0x00, 0x00, 0x00, 0x00, 0x00, 0x00},
 };
 
-/* mirrorfwd.c: DPDK forwarding app acting like a mirror */
+static uint64_t timer_period_tsc;
 
 // #define PKT_IS_IP_HDR(m) (RTE_ETH_IS_IPV4_HDR(m->packet_type) || RTE_ETH_IS_IPV6_HDR(m->packet_type))
 #define IS_UDP_HDR(ptype) ((ptype) & RTE_PTYPE_L4_UDP)
@@ -99,7 +104,7 @@ print_stats(void)
 	fflush(stdout);
 }
 
-/* Hard-coded ARP function */
+/* Hard-coded IP-to-MAC resolution function */
 struct rte_ether_addr get_mac_from_ip(uint32_t ip) {
 	if (ip == target_ip_1)
 		return target_ip_1_mac;
@@ -109,45 +114,41 @@ struct rte_ether_addr get_mac_from_ip(uint32_t ip) {
 
 	else
 		rte_exit(EXIT_FAILURE, "get_mac_from_ip() only works for the two target IP addresses!\n");
-
 }
 
-/* Check if a given packet is a RoCEv2 packet */
-int is_rocev2_pkt(struct rte_mbuf *m) {
-	if (!(RTE_ETH_IS_IPV4_HDR(m->packet_type) || RTE_ETH_IS_IPV6_HDR(m->packet_type)))
-		return 0;
-	if (!(IS_UDP_HDR(m->packet_type)))
-		return 0;
+// /* Check if a given packet is a RoCEv2 packet */
+// int is_rocev2_pkt(struct rte_mbuf *m) {
+// 	if (!(RTE_ETH_IS_IPV4_HDR(m->packet_type) || RTE_ETH_IS_IPV6_HDR(m->packet_type)))
+// 		return 0;
+// 	if (!(IS_UDP_HDR(m->packet_type)))
+// 		return 0;
 	
-	uint16_t dst_port;
-	struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
+// 	uint16_t dst_port;
+// 	struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
-	if (RTE_ETH_IS_IPV4_HDR(m->packet_type)) {
-		struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-		struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
-		dst_port = rte_be_to_cpu_16(udp_hdr->dst_port);
-	}
-	else if (RTE_ETH_IS_IPV6_HDR(m->packet_type)) {
-		struct rte_ipv6_hdr *ip_hdr = (struct rte_ipv6_hdr *)(eth_hdr + 1);
-		struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
-		dst_port = rte_be_to_cpu_16(udp_hdr->dst_port);
-	}
+// 	if (RTE_ETH_IS_IPV4_HDR(m->packet_type)) {
+// 		struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+// 		struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
+// 		dst_port = rte_be_to_cpu_16(udp_hdr->dst_port);
+// 	}
+// 	else if (RTE_ETH_IS_IPV6_HDR(m->packet_type)) {
+// 		struct rte_ipv6_hdr *ip_hdr = (struct rte_ipv6_hdr *)(eth_hdr + 1);
+// 		struct rte_udp_hdr *udp_hdr = (struct rte_udp_hdr *)(ip_hdr + 1);
+// 		dst_port = rte_be_to_cpu_16(udp_hdr->dst_port);
+// 	}
 
-	if (dst_port != 4791)
-		return 0;
+// 	if (dst_port != 4791)
+// 		return 0;
 
-	return 1;
-}
+// 	return 1;
+// }
 
-/* Check if given packet's src IP matches target IP */
+/* Check if given packet's src IP matches target IP(v4) */
 uint32_t is_target_pkt(struct rte_mbuf *m) {
-	// if (!(RTE_ETH_IS_IPV4_HDR(m->packet_type) || RTE_ETH_IS_IPV6_HDR(m->packet_type)))
-	// 	return 0;
-
 
 	if (RTE_ETH_IS_IPV4_HDR(m->packet_type)) {
 		struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-		struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+		struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)((char *)eth_hdr + m->l2_len);
 		uint32_t src_ip = rte_be_to_cpu_32(ip_hdr->src_addr);
 		uint32_t dst_ip = rte_be_to_cpu_32(ip_hdr->dst_addr);
 
@@ -159,14 +160,10 @@ uint32_t is_target_pkt(struct rte_mbuf *m) {
 			return 0;
 	}
 	
-	// else if (RTE_ETH_IS_IPV6_HDR(m->packet_type)) {
-	// 	struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-	// 	struct rte_ipv6_hdr *ip_hdr = (struct rte_ipv6_hdr *)(eth_hdr + 1);
-	// }
-
 	else
 		return 0;
 }
+
 
 /*
  * Initializes a given port using global settings and with the RX buffers
@@ -282,7 +279,7 @@ port_init(uint16_t port, struct rte_mempool *mbuf_pool)
 
 /*
  * The lcore main. This is the main thread that does the work, reading from
- * an input port and writing to the same port as an output port.
+ * an input port and taking proper actions.
  */
 
  /* Mirror forwarding application lcore. 8< */
@@ -343,7 +340,9 @@ lcore_main(void)
 				sent = rte_eth_tx_buffer_flush(port, 0, buffer);
 				if (sent) {
 					port_statistics[port].tx += sent;
-					// printf("%u pkts flushed to port %u!\n", sent, port);
+#ifdef DEBUG_MODE
+					printf("lcore_main(): %u pkts were flushed to port %u!\n", sent, port);
+#endif
 				}
 			}
 
@@ -373,14 +372,14 @@ lcore_main(void)
 		/*
 		 * Receive packets on a port.
 		 * For physical ports:
-		 *   Packets of interest (RoCEv2 packets) are mirrored.
+		 *   Packets of interest (srcIP-matched pkts) are mirrored.
 		 *   Other packets are passed to kernel stack via virtio port.
 		 * For virtio ports:
 		 *   Read packets and forward them back to corresponding physical port
 		 */
 		RTE_ETH_FOREACH_DEV(port) {
 
-			/* for physical ports */
+			/* for physical ports 8< */
 			if (port < nb_pports) {
 				
 				/* Get burst of RX packets */
@@ -392,11 +391,12 @@ lcore_main(void)
 					continue;
 
 				port_statistics[port].rx += nb_rx;
-				// printf("%u pkts received on port %u!\n", nb_rx, port);
+#ifdef DEBUG_MODE
+				printf("lcore_main(): %u pkts were received on port %u!\n", nb_rx, port);
+#endif
 
 				for (i = 0; i < nb_rx; i++) {
 					m = bufs[i];
-					// eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
 					// /* if packet is RoCEv2 */
 					// if (is_rocev2_pkt(m)) {
@@ -414,12 +414,14 @@ lcore_main(void)
 						m->l3_len = hdr_lens.l3_len;
 					}
 
-					/* if packet is target pkt */
+					/* if packet is target pkt 8< */
 					uint32_t new_dst_ip = is_target_pkt(m);
 					if (new_dst_ip) {
+#ifdef DEBUG_MODE
 						printf("lcore_main(): Received target pkt!\n");
+#endif
 
-						/* Modify src MAC and dst MAC */
+						/* Modify src MAC and dst MAC 8< */
 						struct rte_ether_hdr *eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
 						// simple way: just swap the MACs
@@ -432,21 +434,28 @@ lcore_main(void)
 						// rte_ether_addr_copy(&eth_hdr->dst_addr, &eth_hdr->src_addr);
 						// struct rte_ether_addr new_dst_mac = get_mac_from_ip(new_dst_ip);
 						// rte_ether_addr_copy(&new_dst_mac, &eth_hdr->dst_addr);
-						
+
+#ifdef DEBUG_MODE						
 						printf("lcore_main(): for new pkt to send, srcMAC="
 							RTE_ETHER_ADDR_PRT_FMT
 							", dstMAC="
 							RTE_ETHER_ADDR_PRT_FMT "\n",
 							RTE_ETHER_ADDR_BYTES(&eth_hdr->src_addr),
 							RTE_ETHER_ADDR_BYTES(&eth_hdr->dst_addr));
+#endif
+						/* >8 End of modifying MACs */
 
-						/* Modify src IP and dst IP */
+						/* Modify src IP and dst IP 8< */
 						struct rte_ipv4_hdr *ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
+						ip_hdr->src_addr = rte_cpu_to_be_32(my_ip);
+						ip_hdr->dst_addr = rte_cpu_to_be_32(new_dst_ip);
+
+#ifdef DEBUG_MODE
 						printf("lcore_main(): for new pkt to send, srcIP=%u.%u.%u.%u, dstIP=%u.%u.%u.%u\n",
 								(my_ip>>24)&0xff, (my_ip>>16)&0xff, (my_ip>>8)&0xff, my_ip&0xff,
 								(new_dst_ip>>24)&0xff, (new_dst_ip>>16)&0xff, (new_dst_ip>>8)&0xff, new_dst_ip&0xff);
-						ip_hdr->src_addr = rte_cpu_to_be_32(my_ip);
-						ip_hdr->dst_addr = rte_cpu_to_be_32(new_dst_ip);
+#endif
+						/* >8 End of modifying IPs */
 
 						ip_hdr->hdr_checksum = 0;
 
@@ -479,8 +488,12 @@ lcore_main(void)
 						sent = rte_eth_tx_buffer(port, 0, buffer, m);
 						if (sent) {
 							port_statistics[port].tx += sent;
+#ifdef DEBUG_MODE
+							printf("lcore_main(): %u pkts were sent to port %u!\n", sent, port);
+#endif
 						}
 					}
+					/* >8 End of handling target pkt */
 
 					/* Otherwise, pass the packet to kernel stack via virtio port */
 					else {
@@ -488,100 +501,16 @@ lcore_main(void)
 						sent = rte_eth_tx_buffer(port + nb_pports, 0, buffer, m);
 						if (sent){
 							port_statistics[port + nb_pports].tx += sent;
-							// printf("%u pkts sent to port %u!\n", sent, port + nb_pports);
+#ifdef DEBUG_MODE
+							printf("lcore_main(): %u pkts were sent to port %u!\n", sent, port + nb_pports);
+#endif
 						} 
 					}
 				}
-
-				// const uint16_t nb_tx = rte_eth_tx_burst(port + nb_pports, 0,
-				// 		bufs, nb_rx);
-
-				/* Free any unsent packets. */
-				// if (unlikely(nb_tx < nb_rx)) {
-				// 	uint16_t buf;
-				// 	for (buf = nb_tx; buf < nb_rx; buf++)
-				// 		rte_pktmbuf_free(bufs[buf]);
-				// }
-
-
-				// for (i = 0; i < nb_rx; i++) {
-				// 	m = bufs[i];
-					
-				// 	eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
-
-				// 	/* if packet is IPv4 */
-				// 	if (RTE_ETH_IS_IPV4_HDR(m->packet_type)) {
-				// 		struct rte_ipv4_hdr *ip_hdr;
-				// 		rte_be32_t tmp;
-
-				// 		ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
-
-				// 		/* swap src IP and dst IP */
-				// 		tmp = ip_hdr->src_addr;
-				// 		ip_hdr->src_addr = ip_hdr->dst_addr;
-				// 		ip_hdr->dst_addr = tmp;
-
-				// 		ip_hdr->hdr_checksum = 0;
-						
-				// 		/* calculate IPv4 cksum in SW if needed */
-				// 		if ((m->ol_flags & RTE_MBUF_F_TX_IP_CKSUM) == 0)
-				// 			ip_hdr->hdr_checksum = rte_ipv4_cksum(ip_hdr);
-
-
-				// 		const uint16_t nb_tx = rte_eth_tx_burst(port, 0,
-				// 				bufs, nb_rx);
-
-				// 		/* Free any unsent packets. */
-				// 		if (unlikely(nb_tx < nb_rx)) {
-				// 			uint16_t buf;
-				// 			for (buf = nb_tx; buf < nb_rx; buf++)
-				// 				rte_pktmbuf_free(bufs[buf]);
-				// 		}
-
-				// 	}
-
-				// 	/* if packet is IPv6 */
-				// 	else if (RTE_ETH_IS_IPV6_HDR(m->packet_type)) {
-				// 		struct rte_ipv6_hdr *ip_hdr;
-				// 		uint8_t tmp[16];
-						
-				// 		ip_hdr = (struct rte_ipv6_hdr *)(eth_hdr + 1);
-
-				// 		/* swap src IP and dst IP */
-				// 		memcpy(tmp, ip_hdr->src_addr, 16);
-				// 		memcpy(ip_hdr->src_addr, ip_hdr->dst_addr, 16);
-				// 		memcpy(ip_hdr->dst_addr, tmp, 16);
-
-
-				// 		const uint16_t nb_tx = rte_eth_tx_burst(port, 0,
-				// 				bufs, nb_rx);
-
-				// 		/* Free any unsent packets. */
-				// 		if (unlikely(nb_tx < nb_rx)) {
-				// 			uint16_t buf;
-				// 			for (buf = nb_tx; buf < nb_rx; buf++)
-				// 				rte_pktmbuf_free(bufs[buf]);
-				// 		}
-
-				// 	}
-
-				// 	/* if packet is not IP */
-				// 	else {
-				// 		const uint16_t nb_tx = rte_eth_tx_burst(port + nb_pports, 0,
-				// 				bufs, nb_rx);
-
-				// 		/* Free any unsent packets. */
-				// 		if (unlikely(nb_tx < nb_rx)) {
-				// 			uint16_t buf;
-				// 			for (buf = nb_tx; buf < nb_rx; buf++)
-				// 				rte_pktmbuf_free(bufs[buf]);
-				// 		}
-				// 	}
-				// }
-
 			}
+			/* >8 End of physical port case */
 
-			/* for virtio ports */
+			/* for virtio ports 8< */
 			else {
 				/* Get burst of RX packets */
 				struct rte_mbuf *bufs[BURST_SIZE];
@@ -606,6 +535,7 @@ lcore_main(void)
 						rte_pktmbuf_free(bufs[buf]);
 				}
 			}
+			/* >8 End of virtio port case */
 		}
 	}
 	/* >8 End of loop. */
