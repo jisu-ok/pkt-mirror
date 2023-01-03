@@ -533,7 +533,7 @@ lcore_main(void)
 				/* Forward read packets to corresponding physical port */
 				nb_tx = rte_eth_tx_burst(port - nb_pports, 0, bufs, nb_rx);
 					
-				port_statistics[port].tx += nb_tx;
+				port_statistics[port - nb_pports].tx += nb_tx;
 
 				/* Free any unsent packets. */
 				if (unlikely(nb_tx < nb_rx)) {
