@@ -15,6 +15,7 @@
 #include <rte_net.h>
 
 #define DEBUG_MODE
+#define GET_PTYPE 1
 
 #define RX_RING_SIZE 1024
 #define TX_RING_SIZE 1024
@@ -353,7 +354,7 @@ lcore_main(void)
 				if (sent) {
 					port_statistics[port].tx += sent;
 #ifdef DEBUG_MODE
-					printf("lcore_main(): %u pkts were flushed to port %u!\n", sent, port);
+					// printf("lcore_main(): %u pkts were flushed to port %u!\n", sent, port);
 #endif
 				}
 			}
@@ -403,22 +404,19 @@ lcore_main(void)
 
 				port_statistics[port].rx += nb_rx;
 #ifdef DEBUG_MODE
-				printf("lcore_main(): %u pkts were received on port %u!\n", nb_rx, port);
+				// printf("lcore_main(): %u pkts were received on port %u!\n", nb_rx, port);
 #endif
 
 				for (i = 0; i < nb_rx; i++) {
 					m = bufs[i];
 
-					// /* if packet is RoCEv2 */
-					// if (is_rocev2_pkt(m)) {
-					// 	printf("Received RoCEv2 pkt!\n");
-					// }
-
-					/* if packet type recognition by HW is not working, get packet type in SW */
-					if (m->packet_type == 0) {
-						// uint32_t packet_type;
-						// struct rte_net_hdr_lens hdr_lens;
-
+					/* Parse packet type if GET_PTYPE is enabled.
+					 * Even if GET_PTYPE is disabled (zero)
+					 * since HW or driver is expected to do so,
+					 * perform the parsing if packet_type has no information
+					 */ 
+					if (GET_PTYPE || m->packet_type == 0) {
+						memset(&hdr_lens, 0, sizeof(struct rte_net_hdr_lens));
 						packet_type = rte_net_get_ptype(m, &hdr_lens, RTE_PTYPE_ALL_MASK);
 						m->packet_type = packet_type;
 						m->l2_len = hdr_lens.l2_len;
@@ -431,7 +429,6 @@ lcore_main(void)
 #ifdef DEBUG_MODE
 						printf("lcore_main(): Received target pkt!\n");
 #endif
-
 						/* Modify src MAC and dst MAC 8< */
 						eth_hdr = rte_pktmbuf_mtod(m, struct rte_ether_hdr *);
 
@@ -457,6 +454,7 @@ lcore_main(void)
 						/* >8 End of modifying MACs */
 
 						/* Modify src IP and dst IP 8< */
+						// ip_hdr = (struct rte_ipv4_hdr *)((char *)eth_hdr + m2->l2_len);
 						ip_hdr = (struct rte_ipv4_hdr *)(eth_hdr + 1);
 						ip_hdr->src_addr = rte_cpu_to_be_32(my_ip);
 						ip_hdr->dst_addr = rte_cpu_to_be_32(new_dst_ip);
@@ -500,7 +498,7 @@ lcore_main(void)
 						if (sent) {
 							port_statistics[port].tx += sent;
 #ifdef DEBUG_MODE
-							printf("lcore_main(): %u pkts were sent to port %u!\n", sent, port);
+							// printf("lcore_main(): %u pkts were sent to port %u!\n", sent, port);
 #endif
 						}
 					}
@@ -513,7 +511,7 @@ lcore_main(void)
 						if (sent){
 							port_statistics[port + nb_pports].tx += sent;
 #ifdef DEBUG_MODE
-							printf("lcore_main(): %u pkts were sent to port %u!\n", sent, port + nb_pports);
+							// printf("lcore_main(): %u pkts were sent to port %u!\n", sent, port + nb_pports);
 #endif
 						} 
 					}
