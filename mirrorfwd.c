@@ -60,6 +60,8 @@ struct mirrorfwd_port_statistics {
 } __rte_cache_aligned;
 struct mirrorfwd_port_statistics port_statistics[RTE_MAX_ETHPORTS];
 
+uint64_t mirrored = 0;
+
 /* Print out statistics on each port */
 static void
 print_stats(void)
@@ -102,6 +104,9 @@ print_stats(void)
 			total_packets_rx,
 			total_packets_droppped);
 	printf("\n==================================================");
+
+	printf("\n\nMirrored target packets: %14"PRIu64, mirrored);
+	printf("\n\n==================================================\n");
 
 	fflush(stdout);
 }
@@ -495,6 +500,7 @@ lcore_main(void)
 						/* Transmit the pkt to the same port it arrived */
 						buffer = tx_buffer[port];
 						sent = rte_eth_tx_buffer(port, 0, buffer, m);
+						mirrored += 1;
 						if (sent) {
 							port_statistics[port].tx += sent;
 #ifdef DEBUG_MODE
